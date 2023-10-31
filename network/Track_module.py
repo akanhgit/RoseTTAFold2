@@ -11,6 +11,8 @@ from kinematics import normQ, avgQ, Qs2Rs, Rs2Qs
 from symmetry import get_symm_map
 
 
+global_use_torch_script = True
+
 # Components for three-track blocks
 # 1. MSA -> MSA update (biased attention. bias from pair & structure)
 # 2. Pair -> Pair update (biased attention. bias from structure)
@@ -55,6 +57,11 @@ class MSAPairStr2MSA(nn.Module):
             self.col_attn = MSAColAttention(d_msa=d_msa, n_head=n_head, d_hidden=d_hidden) 
         self.ff = FeedForwardLayer(d_msa, 4, p_drop=p_drop)
         
+
+        if global_use_torch_script:
+            self.row_attn = torch.jit.script(self.row_attn)
+            self.col_attn = torch.jit.script(self.col_attn)
+
         # Do proper initialization
         self.reset_parameter()
 
@@ -118,6 +125,12 @@ class PairStr2Pair(nn.Module):
         self.col_attn = BiasedAxialAttention(d_pair, d_pair, n_head, d_hidden, p_drop=p_drop, is_row=False)
 
         self.ff = FeedForwardLayer(d_pair, 2)
+
+        if global_use_torch_script:
+            self.tri_mul_out = torch.jit.script(self.tri_mul_out)
+            self.tri_mul_in = torch.jit.script(self.tri_mul_in)
+            # self.row_attn = torch.jit.script(self.row_attn)
+            # self.col_attn = torch.jit.script(self.col_attn)
         
         self.reset_parameter()
     
@@ -540,6 +553,8 @@ class IterBlock(nn.Module):
                                d_state=SE3_param['l0_out_features'],
                                SE3_param=SE3_param,
                                p_drop=p_drop)
+        if global_use_torch_script:
+            self.msa2pair = torch.jit.script(self.msa2pair)
 
     def forward(self, msa, pair, R_in, T_in, xyz, state, idx, symmids, symmsub_in, symmsub, symmRs, symmmeta, use_checkpoint=False, topk=0, crop=-1):
         #rbf_feat = rbf(torch.cdist(xyz[:,:,1,:], xyz[:,:,1,:])) + self.pos(idx)
