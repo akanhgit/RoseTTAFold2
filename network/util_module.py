@@ -7,6 +7,14 @@ import copy
 import dgl
 from util import *
 
+def print_peak_mem(prefix=None):
+    memory_stats = torch.cuda.memory_stats(device=0)
+    if 'requested_bytes.all.peak' in memory_stats:
+        peak_mem = memory_stats['requested_bytes.all.peak']
+        current_mem = memory_stats['requested_bytes.all.current']
+        print(f'[{prefix}]Memory stats, peak:{peak_mem / (1<<20)}, current:{current_mem / (1<<20)}')
+    torch.cuda.reset_peak_memory_stats()
+
 def init_lecun_normal(module, scale=1.0):
     def truncated_normal(uniform, mu=0.0, sigma=1.0, a=-2, b=2):
         normal = torch.distributions.normal.Normal(0, 1)

@@ -130,8 +130,13 @@ class PairStr2Pair(nn.Module):
         self.tri_mul_out = TriangleMultiplication(d_pair, d_hidden=d_hidden)
         self.tri_mul_in = TriangleMultiplication(d_pair, d_hidden, outgoing=False)
 
-        self.row_attn = BiasedAxialAttention(d_pair, d_pair, n_head, d_hidden, p_drop=p_drop, is_row=True)
-        self.col_attn = BiasedAxialAttention(d_pair, d_pair, n_head, d_hidden, p_drop=p_drop, is_row=False)
+        self.disable_amp_autocast = True
+        if self.disable_amp_autocast:
+            self.row_attn = BiasedAxialAttention(d_pair, d_pair, n_head, d_hidden, p_drop=p_drop, is_row=True).to(torch.float16)
+            self.col_attn = BiasedAxialAttention(d_pair, d_pair, n_head, d_hidden, p_drop=p_drop, is_row=False).to(torch.float16)
+        else:
+            self.row_attn = BiasedAxialAttention(d_pair, d_pair, n_head, d_hidden, p_drop=p_drop, is_row=True)
+            self.col_attn = BiasedAxialAttention(d_pair, d_pair, n_head, d_hidden, p_drop=p_drop, is_row=False)
 
         self.ff = FeedForwardLayer(d_pair, 2)
         
@@ -258,8 +263,14 @@ class PairStr2Pair(nn.Module):
         else:
             pair += self.drop_row(self.tri_mul_out(pair)) 
             pair += self.drop_row(self.tri_mul_in(pair)) 
-            pair += self.drop_row(self.row_attn(pair, rbf_feat)) 
-            pair += self.drop_col(self.col_attn(pair, rbf_feat)) 
+            if self.disable_amp_autocast:
+                pair = pair.to(torch.float16)
+                with torch.cuda.amp.autocast(False):
+                    pair += self.drop_row(self.row_attn(pair, rbf_feat)) 
+                    pair += self.drop_col(self.col_attn(pair, rbf_feat)) 
+            else:
+                pair += self.drop_row(self.row_attn(pair, rbf_feat)) 
+                pair += self.drop_col(self.col_attn(pair, rbf_feat)) 
             pair += self.ff(pair)
 
         return pair
@@ -649,7 +660,9 @@ class IterBlock(nn.Module):
         else:
             msa = self.msa2msa(msa, pair, rbf_feat, state)
             pair = self.msa2pair(msa, pair)
+            print_peak_mem("before_pair2pair")
             pair = self.pair2pair(pair, rbf_feat, state, crop)
+            print_peak_mem("after_pair2pair")
             rbf_feat = None # free mem
             R, T, state, alpha = self.str2str(
                 msa, pair, R_in, T_in, xyz, state, idx, top_k=topk
